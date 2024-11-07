@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"github.com/gorilla/mux"
 )
@@ -138,15 +139,64 @@ func generateSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Call the Ollama API to generate a summary
-	ollamaSummary := fmt.Sprintf(
-		"Student %s, aged %d, is enrolled in the course %s and can be contacted at %s.",
+	prompt := fmt.Sprintf(
+		"Please generate a detailed summary of the student with the following information: Name: %s, Age: %d, Course: %s, Email: %s. Make sure the summary is clear and informative.",
 		student.Name, student.Age, student.Course, student.Email,
 	)
 
+	ollamaAPIURL := "http://localhost:11434/api/generate" 
+	ollamaModel := "llama3.2" 
+	requestBody := fmt.Sprintf(`{
+		"model": "%s",
+		"prompt": "%s"
+	}`, ollamaModel, prompt)
+
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", ollamaAPIURL, strings.NewReader(requestBody))
+	if err != nil {
+		http.Error(w, "Error creating request", http.StatusInternalServerError)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "Error calling Ollama API", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	var apiResponse map[string]interface{}
+	var fullResponse string
+
+	for {
+		if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+			http.Error(w, "Error parsing Ollama API response", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("Ollama API Partial Response: %+v", apiResponse)
+
+		if response, ok := apiResponse["response"].(string); ok {
+			fullResponse += response
+		}
+
+		if done, ok := apiResponse["done"].(bool); ok && done {
+			break
+		}
+	}
+
+	if fullResponse == "" {
+		http.Error(w, "No response from Ollama API", http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(ollamaSummary))
+	w.Write([]byte(fullResponse))
 }
+
+
+
 
 func main() {
 	r := mux.NewRouter()
