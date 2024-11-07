@@ -1,2 +1,2 @@
-# FealtyX-
+# FealtyX
 Assignment for FealtyX 
